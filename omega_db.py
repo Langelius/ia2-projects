@@ -22,7 +22,7 @@ class Analysis(Base):
     date = Column(DateTime, default=datetime.utcnow)
     summary = Column(Text)
 
-# Fonctions de sécurité (Transplantées de ton fichier auth.py)
+# Fonctions de sécurité
 def hash_pwd(password):
     salt = os.urandom(16)
     pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
