@@ -1,0 +1,21 @@
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# YOLO models
+models/
+
+# Database & data files
+data/
+
+# OS
+.DS_Store
+Thumbs.db
