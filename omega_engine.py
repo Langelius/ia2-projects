@@ -251,7 +251,6 @@ class OmegaAI:
     def _afficher_compteurs_overlay(self, image, compteurs):
         """
         Affiche les compteurs par classe en haut à gauche de la frame.
-        Même style que les fichiers de cours (putText blanc sur fond sombre).
         """
         hauteur_ligne = 25
         y_depart = 30
