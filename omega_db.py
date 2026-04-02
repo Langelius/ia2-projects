@@ -39,7 +39,7 @@ class User(Base):
 
     id            : Mapped[int]           = mapped_column(Integer, primary_key=True)
     username      : Mapped[str]           = mapped_column(String(100), unique=True, nullable=False)
-    email         : Mapped[Optional[str]] = mapped_column(String(200), unique=True, nullable=True)   # ← ajouté : requis par le projet
+    email         : Mapped[Optional[str]] = mapped_column(String(200), unique=True, nullable=True) # ← email facultatif
     password_hash : Mapped[str]           = mapped_column(String(255), nullable=False)
     face_data     : Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # ← encodage facial sérialisé en JSON (vecteur 128)
     role          : Mapped[str]           = mapped_column(String(50), default="user")  # ← "admin" ou "user"

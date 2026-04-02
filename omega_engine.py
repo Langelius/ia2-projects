@@ -5,6 +5,8 @@ Moteur de vision artificielle pour le Projet OMEGA.
 Gère deux fonctionnalités principales :
     1. Reconnaissance faciale (encodage + comparaison)
     2. Détection, suivi et comptage d'objets par YOLOv8
+
+Style inspiré des fichiers de cours (Cours9-yolo.py / Cours9-yolo-Advanced.py).
 """
 
 import cv2
@@ -86,7 +88,7 @@ class OmegaAI:
             return None
 
         reponse, image = camera.read()  # ← capture d'une frame
-        camera.release()              
+        camera.release()               # ← bonne pratique : libérer la caméra immédiatement
 
         return image if reponse else None  # ← retourne l'image seulement si la lecture a réussi
 
@@ -95,17 +97,17 @@ class OmegaAI:
     # TRAITEMENT VIDÉO (YOLO + COMPTAGE)
     # -------------------------------------------------------------------------
 
-    def traiter_video(self, chemin_video, run_id, ratio_ligne=0.6):
+    def traiter_video(self, chemin_video, run_id, ratio_ligne=0.6,
+                      pas_frames=1, callback_progression=None):
         """
         Analyse complète d'une vidéo : détection, suivi et comptage par ligne virtuelle.
 
         Paramètres :
-            chemin_video (str)  : chemin vers le fichier MP4
-            run_id (int)        : identifiant du run pour la base de données
-            ratio_ligne (float) : position relative de la ligne de comptage (0.0 à 1.0)
-
-        Retourne :
-            dict contenant les comptages par classe et le chemin de la vidéo annotée
+            chemin_video          (str)      : chemin vers le fichier MP4
+            run_id                (int)      : identifiant du run pour la base de données
+            ratio_ligne           (float)    : position de la ligne de comptage (0.0 à 1.0)
+            pas_frames            (int)      : analyser 1 frame sur N (1 = toutes, 2 = une sur deux…)
+            callback_progression  (callable) : fonction appelée à chaque frame avec (frame_actuelle, total_frames)
         """
         capture = cv2.VideoCapture(chemin_video)  # ← ouverture de la vidéo
 
@@ -114,9 +116,10 @@ class OmegaAI:
             return None
 
         # ← Récupération des propriétés de la vidéo
-        largeur = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-        hauteur = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps     = capture.get(cv2.CAP_PROP_FPS)
+        largeur      = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        hauteur      = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps          = capture.get(cv2.CAP_PROP_FPS)
+        total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))  # ← nombre total de frames
 
         # ← Position Y de la ligne de comptage virtuelle
         ligne_y = int(hauteur * ratio_ligne)
@@ -140,6 +143,15 @@ class OmegaAI:
 
             numero_frame += 1
 
+            # ← Notification de la progression au callback (Streamlit ou autre)
+            if callback_progression is not None:
+                callback_progression(numero_frame, total_frames)
+
+            # ← Sous-échantillonnage : écrire la frame dans la sortie mais sauter l'inférence YOLO
+            if numero_frame % pas_frames != 0:
+                sortie.write(image)  # ← on conserve la frame dans la vidéo sans l'annoter
+                continue
+
             # ← Dessin de la ligne de comptage virtuelle (rouge)
             cv2.line(image, (0, ligne_y), (largeur, ligne_y), (0, 0, 255), 2)
 
@@ -151,13 +163,15 @@ class OmegaAI:
                 conf=self.seuil_confiance
             )
 
+            # ← Extraction du bloc boxes dans une variable locale pour satisfaire Pyright
             boxes_result = resultats[0].boxes
             if boxes_result is not None and boxes_result.id is not None:
 
                 def _vers_numpy(valeur):
+                    """Convertit un Tensor PyTorch ou un ndarray numpy en ndarray numpy."""
                     if hasattr(valeur, "cpu"):
-                        return valeur.cpu().numpy()
-                    return np.array(valeur)
+                        return valeur.cpu().numpy()  # ← cas Tensor PyTorch
+                    return np.array(valeur)           # ← cas ndarray ou autre
 
                 boites     = _vers_numpy(boxes_result.xyxy)           # ← (x1, y1, x2, y2)
                 ids        = _vers_numpy(boxes_result.id).astype(int)  # ← IDs entiers

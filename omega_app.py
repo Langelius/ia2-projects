@@ -259,7 +259,7 @@ else:
 
         fichier_video = st.file_uploader("Sélectionner une vidéo MP4", type=["mp4"])
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             ratio_ligne = st.slider(
                 "Position de la ligne de comptage (%)",
@@ -270,6 +270,13 @@ else:
                 "Seuil de confiance YOLO",
                 min_value=0.1, max_value=0.9, value=0.5, step=0.05
             )
+        with col3:
+            pas_frames = st.select_slider(
+                "Analyser 1 frame sur :",
+                options=[1, 2, 3, 5, 10],
+                value=2,
+                help="Plus la valeur est grande, plus l'analyse est rapide (mais moins précise)."
+            )  # ← sous-échantillonnage : 1=toutes les frames, 2=une sur deux, etc.
 
         if fichier_video is not None:
             # ← Sauvegarde temporaire de la vidéo uploadée
@@ -278,36 +285,60 @@ else:
                 f.write(fichier_video.read())
 
             if st.button("▶️ Démarrer l'analyse"):
-                with st.spinner("Analyse en cours... Cela peut prendre quelques minutes."):
 
-                    # ← Mise à jour du seuil de confiance du moteur
-                    moteur.seuil_confiance = seuil_conf
+                # ← Mise à jour du seuil de confiance du moteur
+                moteur.seuil_confiance = seuil_conf
 
-                    # ← Enregistrement de la vidéo dans la base
-                    session = SessionLocal()
-                    nouvelle_video = Video(
-                        titre=fichier_video.name,
-                        chemin=chemin_temp,
-                        fps=0  # ← sera mis à jour après analyse
-                    )
-                    session.add(nouvelle_video)
-                    session.commit()
-                    video_id = nouvelle_video.id
+                # ← Enregistrement de la vidéo dans la base
+                session = SessionLocal()
+                nouvelle_video = Video(
+                    titre=fichier_video.name,
+                    chemin=chemin_temp,
+                    fps=0  # ← sera mis à jour après analyse
+                )
+                session.add(nouvelle_video)
+                session.commit()
+                video_id = nouvelle_video.id
 
-                    # ← Création du run d'analyse
-                    run = Run(
-                        user_id=st.session_state.user_id,
-                        video_id=video_id,
-                        modele_yolo="yolov8n.pt",
-                        seuil_confiance=seuil_conf
-                    )
-                    session.add(run)
-                    session.commit()
-                    run_id = run.id
-                    session.close()
+                # ← Création du run d'analyse
+                run = Run(
+                    user_id=st.session_state.user_id,
+                    video_id=video_id,
+                    modele_yolo="yolov8n.pt",
+                    seuil_confiance=seuil_conf
+                )
+                session.add(run)
+                session.commit()
+                run_id = run.id
+                session.close()
 
-                    # ← Lancement de l'analyse (détection + comptage + CSV)
-                    resultats = moteur.traiter_video(chemin_temp, run_id, ratio_ligne)
+                # ← Éléments de progression affichés en temps réel
+                barre  = st.progress(0, text="Initialisation...")
+                statut = st.empty()  # ← zone de texte mise à jour à chaque frame
+
+                def maj_progression(frame_actuelle, total_frames):
+                    """Callback appelé par traiter_video() à chaque frame traitée."""
+                    if total_frames > 0:
+                        pct = frame_actuelle / total_frames
+                        barre.progress(
+                            min(pct, 1.0),
+                            text=f"Frame {frame_actuelle} / {total_frames} — {pct*100:.1f}%"
+                        )
+                        statut.caption(
+                            f"⏱ Traitement en cours... "
+                            f"({frame_actuelle} frames analysées sur {total_frames})"
+                        )
+
+                # ← Lancement de l'analyse avec callback de progression
+                resultats = moteur.traiter_video(
+                    chemin_temp, run_id, ratio_ligne,
+                    pas_frames=pas_frames,
+                    callback_progression=maj_progression
+                )
+
+                # ← Nettoyage des éléments de progression
+                barre.empty()
+                statut.empty()
 
                 if resultats:
                     st.success("Analyse terminée !")
