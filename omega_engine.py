@@ -8,14 +8,25 @@ Gère deux fonctionnalités principales :
 
 Style inspiré des fichiers de cours (Cours9-yolo.py / Cours9-yolo-Advanced.py).
 """
-
+import os
 import cv2
 import csv
 import json
 import numpy as np
 import face_recognition
 from datetime import datetime
+
+# ← Désactive le prompt interactif LAP (License Agreement Prompt) d'Ultralytics
+# ← Nécessaire en contexte Streamlit où stdin n'est pas disponible
+os.environ["YOLO_VERBOSE"] = "False"
+os.environ["ULTRALYTICS_SETTINGS_DIR"] = os.path.join(os.path.expanduser("~"), ".ultralytics")
+ 
 from ultralytics import YOLO
+from ultralytics import settings as yolo_settings
+ 
+# ← Désactive l'envoi de métriques et le prompt de consentement au démarrage
+yolo_settings.update({"sync": False})  # ← sync=False = pas de télémétrie, pas de prompt LAP
+
 
 from omega_db import SessionLocal, DetectionEvent, CountSummary
 
