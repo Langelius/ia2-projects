@@ -12,13 +12,15 @@ import cv2
 import json
 import numpy as np
 import face_recognition
+from sqlalchemy import func
 
 from omega_db import (
     initialiser_base, SessionLocal,
-    User, Video, Run, CountSummary,
+    User, Video, Run, CountSummary, DetectionEvent,
     hacher_mot_de_passe, verifier_mot_de_passe
 )
 from omega_engine import OmegaAI
+from generer_rapport import generer_rapport
 
 # ← Initialisation de la base de données au démarrage de l'application
 initialiser_base()
@@ -384,6 +386,15 @@ else:
     elif page == "Historique":
         st.header("📋 Historique de mes analyses")
 
+        # ← Dictionnaire ID COCO par classe (constantes du modèle COCO)
+        ID_COCO = {
+            "person":     0,
+            "car":        2,
+            "motorcycle": 3,
+            "bus":        5,
+            "truck":      7,
+        }
+
         session = SessionLocal()
         runs = (
             session.query(Run)
@@ -396,18 +407,84 @@ else:
             st.info("Aucune analyse effectuée pour l'instant.")
         else:
             for run in runs:
-                with st.expander(f"Run #{run.id} — {run.date_lancement.strftime('%Y-%m-%d %H:%M')} — {run.video.titre}"):
-                    st.markdown(f"**Modèle :** {run.modele_yolo}")
-                    st.markdown(f"**Seuil de confiance :** {run.seuil_confiance}")
+                titre_expander = (
+                    f"Run #{run.id} — "
+                    f"{run.date_lancement.strftime('%Y-%m-%d %H:%M')} — "
+                    f"{run.video.titre}"
+                )
+                with st.expander(titre_expander):
+                    st.markdown(f"**Modèle :** {run.modele_yolo} | **Seuil :** {run.seuil_confiance}")
+                    st.divider()
 
-                    # ← Récupération des résumés de comptage pour ce run
-                    resumés = session.query(CountSummary).filter_by(run_id=run.id).all()
-                    if resumés:
-                        st.table([
-                            {"Classe": r.classe, "Objets comptés": r.total}
-                            for r in resumés if r.total > 0
-                        ])
+                    # ← Calcul de la confiance moyenne par classe depuis detection_events
+                    stats_confiance = (
+                        session.query(
+                            DetectionEvent.classe,
+                            func.avg(DetectionEvent.confiance).label("conf_moy"),
+                            func.count(DetectionEvent.id).label("nb_detections")
+                        )
+                        .filter(DetectionEvent.run_id == run.id)
+                        .group_by(DetectionEvent.classe)
+                        .all()
+                    )
+
+                    # ← Dictionnaire classe → (conf_moy, nb_detections) pour croisement
+                    conf_par_classe = {
+                        row.classe: (round(float(row.conf_moy), 3), int(row.nb_detections))
+                        for row in stats_confiance
+                        if row.conf_moy is not None
+                    }
+
+                    # ← Résumés de comptage (totaux par classe)
+                    resumes = (
+                        session.query(CountSummary)
+                        .filter_by(run_id=run.id)
+                        .all()
+                    )
+
+                    classes_detectees = [r for r in resumes if r.total > 0]
+
+                    if classes_detectees:
+                        # ← Construction du tableau enrichi
+                        tableau = []
+                        for r in classes_detectees:
+                            conf_moy, nb_det = conf_par_classe.get(r.classe, (None, 0))
+                            tableau.append({
+                                "Classe":            r.classe,
+                                "ID COCO":           ID_COCO.get(r.classe, "—"),
+                                "Objets comptés":    r.total,
+                                "Détections totales": nb_det,
+                                "Confiance moyenne": f"{conf_moy:.3f}" if conf_moy else "—",
+                            })
+
+                        st.dataframe(
+                            tableau,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                        # ← Bouton pour générer le rapport PDF avec les vraies données de ce run
+                        chemin_rapport = f"data/rapport_run_{run.id}.pdf"
+                        if st.button(f"📄 Générer le rapport PDF (Run #{run.id})", key=f"rapport_{run.id}"):
+                            with st.spinner("Génération du rapport..."):
+                                generer_rapport(
+                                    chemin_sortie=chemin_rapport,
+                                    donnees_reelles=tableau,
+                                    nom_video=run.video.titre,
+                                    date_analyse=run.date_lancement.strftime("%Y-%m-%d %H:%M"),
+                                    modele=run.modele_yolo,
+                                    seuil=run.seuil_confiance,
+                                    run_id=run.id
+                                )
+                            with open(chemin_rapport, "rb") as f:
+                                st.download_button(
+                                    label="⬇️ Télécharger le rapport PDF",
+                                    data=f.read(),
+                                    file_name=f"rapport_omega_run{run.id}.pdf",
+                                    mime="application/pdf",
+                                    key=f"dl_rapport_{run.id}"
+                                )
                     else:
-                        st.markdown("*Pas encore de résultats enregistrés.*")
+                        st.markdown("*Aucun objet détecté lors de cette analyse.*")
 
         session.close()
